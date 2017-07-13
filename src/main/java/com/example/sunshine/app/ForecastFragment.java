@@ -5,6 +5,7 @@ import android.content.Intent;
 import android.net.Uri;
 import android.os.AsyncTask;
 import android.os.Bundle;
+import android.preference.PreferenceManager;
 import android.text.format.Time;
 import android.util.Log;
 import android.view.LayoutInflater;
@@ -29,7 +30,6 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
-import java.util.Arrays;
 
 public class ForecastFragment extends Fragment {
 
@@ -52,10 +52,16 @@ public class ForecastFragment extends Fragment {
         Log.d("ForecastFragment", "inside on options select" + item.getItemId());
         if (item.getItemId() == R.id.action_refresh) {
             Log.d("ForecastFragment", "clicked refresh");
-            new FetchWeatherTask().execute("1257629");
+            updateWeather();
             return true;
         }
         return super.onOptionsItemSelected(item);
+    }
+
+    @Override
+    public void onStart() {
+        super.onStart();
+        updateWeather();
     }
 
     @Override
@@ -63,21 +69,13 @@ public class ForecastFragment extends Fragment {
                              Bundle savedInstanceState) {
 
 
-        String[] forecast = {
-                "Today - Sunny - 88/63",
-                "Tomorrow - Foggy - 70/46",
-                "Weds - Cloudy - 70/46",
-                "Thurs - Cloudy - 70/46",
-                "Fri - Cloudy - 70/46",
-                "Sat - Cloudy - 70/46"
-        };
-        ArrayList<String> fakeData = new ArrayList<>(Arrays.asList(forecast));
         weatherDataAdapter = new ArrayAdapter<>(
                 getActivity(),
                 R.layout.list_item_forecast,
                 R.id.list_item_forecast_textview,
-                fakeData);
-        new FetchWeatherTask().execute("1257629");
+                new ArrayList<String>());
+
+//        updateWeather();
         View rootView = inflater.inflate(R.layout.fragment_main, container, false);
         ListView listView = (ListView) rootView.findViewById(R.id.listview_forecast);
 
@@ -91,6 +89,18 @@ public class ForecastFragment extends Fragment {
         });
         listView.setAdapter(weatherDataAdapter);
         return rootView;
+    }
+
+    private void updateWeather() {
+        String location = getPreferenceValue(R.string.pref_location_key, R.string.pref_location_default_value);
+        String unit = getPreferenceValue(R.string.pref_unit_key, R.string.pref_unit_default);
+        new FetchWeatherTask().execute(location, unit);
+    }
+
+    private String getPreferenceValue(int keyValue, int defaultValueKey) {
+        String key = getString(keyValue);
+        String defaultValue = getString(defaultValueKey);
+        return PreferenceManager.getDefaultSharedPreferences(getActivity()).getString(key, defaultValue);
     }
 
     public class FetchWeatherTask extends AsyncTask<String, Void, String[]> {
@@ -110,6 +120,7 @@ public class ForecastFragment extends Fragment {
                 // Possible parameters are avaiable at OWM's forecast API page, at
                 // http://openweathermap.org/API#forecast
                 final String BASE_URL = "http://api.openweathermap.org/data/2.5/forecast/daily?";
+                int numDays = 7;
 
                 Uri uri = Uri.parse(BASE_URL).buildUpon()
                         .appendQueryParameter("id", params[0])
@@ -149,7 +160,7 @@ public class ForecastFragment extends Fragment {
                     // Stream was empty.  No point in parsing.
                     return null;
                 }
-                String[] weatherData = getWeatherDataFromJson(buffer.toString(), 7);
+                String[] weatherData = getWeatherDataFromJson(buffer.toString(), params[1], numDays);
                 return weatherData;
             } catch (IOException e) {
                 Log.e(TAG, "Error in getting data ", e);
@@ -212,7 +223,7 @@ public class ForecastFragment extends Fragment {
          * Fortunately parsing is easy:  constructor takes the JSON string and converts it
          * into an Object hierarchy for us.
          */
-        private String[] getWeatherDataFromJson(String forecastJsonStr, int numDays)
+        private String[] getWeatherDataFromJson(String forecastJsonStr, String unit, int numDays)
                 throws JSONException {
 
             // These are the names of the JSON objects that need to be extracted.
@@ -268,8 +279,8 @@ public class ForecastFragment extends Fragment {
                 // Temperatures are in a child object called "temp".  Try not to name variables
                 // "temp" when working with temperature.  It confuses everybody.
                 JSONObject temperatureObject = dayForecast.getJSONObject(OWM_TEMPERATURE);
-                double high = temperatureObject.getDouble(OWM_MAX);
-                double low = temperatureObject.getDouble(OWM_MIN);
+                double high = getTemperature(unit, OWM_MAX, temperatureObject);
+                double low = getTemperature(unit, OWM_MIN, temperatureObject);
 
                 highAndLow = formatHighLows(high, low);
                 resultStrs[i] = day + " - " + description + " - " + highAndLow;
@@ -277,6 +288,13 @@ public class ForecastFragment extends Fragment {
 
             return resultStrs;
 
+        }
+
+        private double getTemperature(String unit, String key, JSONObject temperatureObject) throws JSONException {
+            if (unit.equals("fahrenheit")) {
+                return temperatureObject.getDouble(key) * 1.8 + 32;
+            }
+            return temperatureObject.getDouble(key);
         }
 
     }
